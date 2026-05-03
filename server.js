@@ -3,8 +3,13 @@ const mysql = require('mysql2');
 const cors = require('cors');
 const app = express();
 
-// Allowing all origins fixes the "Cannot Connect" browser security blocks
-app.use(cors());
+// This is the "Nuclear Option" for CORS - it allows everything
+app.use(cors({
+    origin: '*',
+    methods: ['GET', 'POST', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization']
+}));
+
 app.use(express.json());
 
 const db = mysql.createPool({
@@ -15,7 +20,7 @@ const db = mysql.createPool({
     port: 3306
 });
 
-// Test this by visiting your-render-url.onrender.com/
+// Test: your-url.onrender.com/
 app.get('/', (req, res) => res.send("API is Online"));
 
 // --- LINKS ---
@@ -35,33 +40,17 @@ app.post('/links', (req, res) => {
     });
 });
 
-app.delete('/links/:id', (req, res) => {
-    const { password } = req.body;
-    if (password !== process.env.ADMIN_PASSWORD) return res.status(401).send("Wrong Password");
-    db.query('DELETE FROM bbb_pages WHERE id = ?', [req.params.id], (err) => {
-        if (err) return res.status(500).send(err);
-        res.send("Deleted");
-    });
-});
-
-// --- CLOUDFLARE STATS ---
+// --- STATS ---
 app.post('/api/stats', async (req, res) => {
     const { password } = req.body;
     if (password !== process.env.ADMIN_PASSWORD) return res.status(401).json({ error: "Unauthorized" });
 
-    // Use the Zone ID and Token from Render Env Variables
-    const zoneId = process.env.CF_ZONE_ID;
-    const apiToken = process.env.CF_API_TOKEN;
-
     const query = {
         query: `{
             viewer {
-                zones(filter: { zoneTag: "${zoneId}" }) {
+                zones(filter: { zoneTag: "${process.env.CF_ZONE_ID}" }) {
                     httpRequests1dGroups(limit: 1, orderBy: [date_DESC]) {
-                        sum {
-                            requests
-                            pageViews
-                        }
+                        sum { requests pageViews }
                     }
                 }
             }
@@ -72,7 +61,7 @@ app.post('/api/stats', async (req, res) => {
         const response = await fetch('https://api.cloudflare.com/client/v4/graphql', {
             method: 'POST',
             headers: {
-                'Authorization': `Bearer ${apiToken}`,
+                'Authorization': `Bearer ${process.env.CF_API_TOKEN}`,
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify(query)
@@ -83,10 +72,10 @@ app.post('/api/stats', async (req, res) => {
         if (result.data && result.data.viewer.zones.length > 0) {
             res.json(result.data.viewer.zones[0].httpRequests1dGroups[0].sum);
         } else {
-            res.status(500).json({ error: "Cloudflare data missing" });
+            res.status(500).json({ error: "Cloudflare API returned no data" });
         }
     } catch (err) {
-        res.status(500).json({ error: "Internal Server Error" });
+        res.status(500).json({ error: "Server Error" });
     }
 });
 
