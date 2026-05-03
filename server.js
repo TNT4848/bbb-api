@@ -3,13 +3,8 @@ const mysql = require('mysql2');
 const cors = require('cors');
 const app = express();
 
-// Allow both your links page and your panel to talk to this API
-app.use(cors({
-    origin: ["https://panel.tnt4848.com", "https://links.tnt4848.com"],
-    methods: ["GET", "POST", "DELETE"],
-    allowedHeaders: ["Content-Type"]
-}));
-
+// This allows ALL your sites to connect without restriction
+app.use(cors()); 
 app.use(express.json());
 
 const db = mysql.createPool({
@@ -20,12 +15,13 @@ const db = mysql.createPool({
     port: 3306
 });
 
-// WAKE UP TEST: Visit your-url.onrender.com/ in a browser to see this
+// Root route to verify the server is actually alive
 app.get('/', (req, res) => {
-    res.send("TNT4848 API is Online and Awake");
+    res.send("API is Online");
 });
 
-// --- LINK MANAGEMENT ---
+// --- LINK MANAGEMENT (Back to your original working logic) ---
+
 app.get('/links', (req, res) => {
     db.query('SELECT * FROM bbb_pages', (err, results) => {
         if (err) return res.status(500).send(err);
@@ -51,9 +47,11 @@ app.delete('/links/:id', (req, res) => {
     });
 });
 
-// --- CLOUDFLARE STATS ---
+// --- CLOUDFLARE STATS (Fixed to not crash the server) ---
+
 app.post('/api/stats', async (req, res) => {
     const { password } = req.body;
+    
     if (password !== process.env.ADMIN_PASSWORD) {
         return res.status(401).json({ error: "Unauthorized" });
     }
@@ -74,6 +72,7 @@ app.post('/api/stats', async (req, res) => {
     };
 
     try {
+        // Node 18+ has fetch built-in. 
         const response = await fetch('https://api.cloudflare.com/client/v4/graphql', {
             method: 'POST',
             headers: {
@@ -84,12 +83,17 @@ app.post('/api/stats', async (req, res) => {
         });
 
         const result = await response.json();
-        if (result.errors) return res.status(500).json({ error: "CF Error", details: result.errors });
+
+        // If Cloudflare returns an error, we catch it here so the server doesn't die
+        if (result.errors || !result.data.viewer.zones[0]) {
+            return res.status(500).json({ error: "Cloudflare API Error" });
+        }
 
         const stats = result.data.viewer.zones[0].httpRequests1dGroups[0].sum;
         res.json(stats);
     } catch (err) {
-        res.status(500).json({ error: "Server Error" });
+        console.error(err);
+        res.status(500).json({ error: "Internal Server Error" });
     }
 });
 
