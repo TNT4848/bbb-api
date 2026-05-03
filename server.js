@@ -3,8 +3,8 @@ const mysql = require('mysql2');
 const cors = require('cors');
 const app = express();
 
-// This allows ALL your sites to connect without restriction
-app.use(cors()); 
+// Allowing all origins fixes the "Cannot Connect" browser security blocks
+app.use(cors());
 app.use(express.json());
 
 const db = mysql.createPool({
@@ -15,13 +15,10 @@ const db = mysql.createPool({
     port: 3306
 });
 
-// Root route to verify the server is actually alive
-app.get('/', (req, res) => {
-    res.send("API is Online");
-});
+// Test this by visiting your-render-url.onrender.com/
+app.get('/', (req, res) => res.send("API is Online"));
 
-// --- LINK MANAGEMENT (Back to your original working logic) ---
-
+// --- LINKS ---
 app.get('/links', (req, res) => {
     db.query('SELECT * FROM bbb_pages', (err, results) => {
         if (err) return res.status(500).send(err);
@@ -47,19 +44,19 @@ app.delete('/links/:id', (req, res) => {
     });
 });
 
-// --- CLOUDFLARE STATS (Fixed to not crash the server) ---
-
+// --- CLOUDFLARE STATS ---
 app.post('/api/stats', async (req, res) => {
     const { password } = req.body;
-    
-    if (password !== process.env.ADMIN_PASSWORD) {
-        return res.status(401).json({ error: "Unauthorized" });
-    }
+    if (password !== process.env.ADMIN_PASSWORD) return res.status(401).json({ error: "Unauthorized" });
+
+    // Use the Zone ID and Token from Render Env Variables
+    const zoneId = process.env.CF_ZONE_ID;
+    const apiToken = process.env.CF_API_TOKEN;
 
     const query = {
         query: `{
             viewer {
-                zones(filter: { zoneTag: "${process.env.CF_ZONE_ID}" }) {
+                zones(filter: { zoneTag: "${zoneId}" }) {
                     httpRequests1dGroups(limit: 1, orderBy: [date_DESC]) {
                         sum {
                             requests
@@ -72,27 +69,23 @@ app.post('/api/stats', async (req, res) => {
     };
 
     try {
-        // Node 18+ has fetch built-in. 
         const response = await fetch('https://api.cloudflare.com/client/v4/graphql', {
             method: 'POST',
             headers: {
-                'Authorization': `Bearer ${process.env.CF_API_TOKEN}`,
+                'Authorization': `Bearer ${apiToken}`,
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify(query)
         });
 
         const result = await response.json();
-
-        // If Cloudflare returns an error, we catch it here so the server doesn't die
-        if (result.errors || !result.data.viewer.zones[0]) {
-            return res.status(500).json({ error: "Cloudflare API Error" });
+        
+        if (result.data && result.data.viewer.zones.length > 0) {
+            res.json(result.data.viewer.zones[0].httpRequests1dGroups[0].sum);
+        } else {
+            res.status(500).json({ error: "Cloudflare data missing" });
         }
-
-        const stats = result.data.viewer.zones[0].httpRequests1dGroups[0].sum;
-        res.json(stats);
     } catch (err) {
-        console.error(err);
         res.status(500).json({ error: "Internal Server Error" });
     }
 });
