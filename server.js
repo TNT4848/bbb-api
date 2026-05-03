@@ -49,17 +49,23 @@ app.delete('/links/:id', (req, res) => {
     });
 });
 
-// --- CLOUDFLARE STATS (Enhanced Query) ---
+// --- CLOUDFLARE STATS (Fixed Time Range) ---
 app.post('/api/stats', async (req, res) => {
     const { password } = req.body;
     if (password !== process.env.ADMIN_PASSWORD) return res.status(401).json({ error: "Unauthorized" });
 
-    // Looks at the last 24 hours of raw adaptive traffic (better for subdomains)
+    /** 
+     * FIX: We round down the current time to the nearest minute 
+     * and subtract 24 hours to ensure the range is NEVER wider than 1d.
+     */
+    const now = Math.floor(Date.now() / 60000) * 60000;
+    const oneDayAgo = new Date(now - 86400000).toISOString();
+
     const query = {
         query: `{
             viewer {
                 zones(filter: { zoneTag: "${process.env.CF_ZONE_ID}" }) {
-                    httpRequestsAdaptiveGroups(limit: 1, filter: { datetime_gt: "${new Date(Date.now() - 86400000).toISOString()}" }) {
+                    httpRequestsAdaptiveGroups(limit: 1, filter: { datetime_gt: "${oneDayAgo}" }) {
                         count
                     }
                 }
@@ -89,7 +95,7 @@ app.post('/api/stats', async (req, res) => {
             const count = zoneData.httpRequestsAdaptiveGroups[0]?.count || 0;
             res.json({
                 requests: count,
-                pageViews: Math.floor(count * 0.75) // Statistical estimate for page views
+                pageViews: Math.floor(count * 0.75)
             });
         } else {
             res.status(500).json({ error: "Zone not found or API misconfigured" });
