@@ -49,23 +49,24 @@ app.delete('/links/:id', (req, res) => {
     });
 });
 
-// --- CLOUDFLARE STATS (Fixed Time Range) ---
+// --- CLOUDFLARE STATS (Fixed with Safety Buffer) ---
 app.post('/api/stats', async (req, res) => {
     const { password } = req.body;
     if (password !== process.env.ADMIN_PASSWORD) return res.status(401).json({ error: "Unauthorized" });
 
     /** 
-     * FIX: We round down the current time to the nearest minute 
-     * and subtract 24 hours to ensure the range is NEVER wider than 1d.
+     * FIX: We subtract 23 hours and 50 minutes (85800000 ms).
+     * This creates a safety window so Cloudflare never sees a range > 24h.
+     * We also strip the milliseconds with .split('.')[0] to be extra safe.
      */
-    const now = Math.floor(Date.now() / 60000) * 60000;
-    const oneDayAgo = new Date(now - 86400000).toISOString();
+    const bufferTime = Date.now() - 85800000; 
+    const timeRange = new Date(bufferTime).toISOString().split('.')[0] + "Z";
 
     const query = {
         query: `{
             viewer {
                 zones(filter: { zoneTag: "${process.env.CF_ZONE_ID}" }) {
-                    httpRequestsAdaptiveGroups(limit: 1, filter: { datetime_gt: "${oneDayAgo}" }) {
+                    httpRequestsAdaptiveGroups(limit: 1, filter: { datetime_gt: "${timeRange}" }) {
                         count
                     }
                 }
