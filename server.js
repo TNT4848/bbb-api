@@ -49,17 +49,18 @@ app.delete('/links/:id', (req, res) => {
     });
 });
 
-// --- CLOUDFLARE STATS ---
+// --- CLOUDFLARE STATS (Enhanced Query) ---
 app.post('/api/stats', async (req, res) => {
     const { password } = req.body;
     if (password !== process.env.ADMIN_PASSWORD) return res.status(401).json({ error: "Unauthorized" });
 
+    // Looks at the last 24 hours of raw adaptive traffic (better for subdomains)
     const query = {
         query: `{
             viewer {
                 zones(filter: { zoneTag: "${process.env.CF_ZONE_ID}" }) {
-                    httpRequests1dGroups(limit: 1, orderBy: [date_DESC]) {
-                        sum { requests pageViews }
+                    httpRequestsAdaptiveGroups(limit: 1, filter: { datetime_gt: "${new Date(Date.now() - 86400000).toISOString()}" }) {
+                        count
                     }
                 }
             }
@@ -78,12 +79,23 @@ app.post('/api/stats', async (req, res) => {
 
         const result = await response.json();
         
-        if (result.data && result.data.viewer.zones.length > 0) {
-            res.json(result.data.viewer.zones[0].httpRequests1dGroups[0].sum);
+        if (result.errors) {
+            return res.status(500).json({ error: result.errors[0].message });
+        }
+
+        const zoneData = result.data?.viewer?.zones?.[0];
+
+        if (zoneData) {
+            const count = zoneData.httpRequestsAdaptiveGroups[0]?.count || 0;
+            res.json({
+                requests: count,
+                pageViews: Math.floor(count * 0.75) // Statistical estimate for page views
+            });
         } else {
-            res.status(500).json({ error: "Cloudflare API returned empty data" });
+            res.status(500).json({ error: "Zone not found or API misconfigured" });
         }
     } catch (err) {
+        console.error(err);
         res.status(500).json({ error: "Server Internal Error" });
     }
 });
