@@ -3,11 +3,11 @@ const mysql = require('mysql2');
 const cors = require('cors');
 const app = express();
 
-// Universal CORS to prevent any "Cannot Connect" blocks from the browser
+// Open CORS to prevent any browser blocking
 app.use(cors({
     origin: '*',
-    methods: ['GET', 'POST', 'DELETE'],
-    allowedHeaders: ['Content-Type']
+    methods: ['GET', 'POST', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
 app.use(express.json());
@@ -20,8 +20,8 @@ const db = mysql.createPool({
     port: 3306
 });
 
-// Root check
-app.get('/', (req, res) => res.send("API is Online"));
+// Root route for health check
+app.get('/', (req, res) => res.send("TNT4848 API is Online"));
 
 // --- LINK MANAGEMENT ---
 app.get('/links', (req, res) => {
@@ -81,10 +81,10 @@ app.post('/api/stats', async (req, res) => {
         if (result.data && result.data.viewer.zones.length > 0) {
             res.json(result.data.viewer.zones[0].httpRequests1dGroups[0].sum);
         } else {
-            res.status(500).json({ error: "No data from Cloudflare" });
+            res.status(500).json({ error: "Cloudflare API returned empty data" });
         }
     } catch (err) {
-        res.status(500).json({ error: "Internal Server Error" });
+        res.status(500).json({ error: "Server Internal Error" });
     }
 });
 
