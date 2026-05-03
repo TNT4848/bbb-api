@@ -3,11 +3,11 @@ const mysql = require('mysql2');
 const cors = require('cors');
 const app = express();
 
-// This is the "Nuclear Option" for CORS - it allows everything
+// Universal CORS to prevent any "Cannot Connect" blocks from the browser
 app.use(cors({
     origin: '*',
-    methods: ['GET', 'POST', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization']
+    methods: ['GET', 'POST', 'DELETE'],
+    allowedHeaders: ['Content-Type']
 }));
 
 app.use(express.json());
@@ -20,10 +20,10 @@ const db = mysql.createPool({
     port: 3306
 });
 
-// Test: your-url.onrender.com/
+// Root check
 app.get('/', (req, res) => res.send("API is Online"));
 
-// --- LINKS ---
+// --- LINK MANAGEMENT ---
 app.get('/links', (req, res) => {
     db.query('SELECT * FROM bbb_pages', (err, results) => {
         if (err) return res.status(500).send(err);
@@ -40,7 +40,16 @@ app.post('/links', (req, res) => {
     });
 });
 
-// --- STATS ---
+app.delete('/links/:id', (req, res) => {
+    const { password } = req.body;
+    if (password !== process.env.ADMIN_PASSWORD) return res.status(401).send("Wrong Password");
+    db.query('DELETE FROM bbb_pages WHERE id = ?', [req.params.id], (err) => {
+        if (err) return res.status(500).send(err);
+        res.send("Deleted");
+    });
+});
+
+// --- CLOUDFLARE STATS ---
 app.post('/api/stats', async (req, res) => {
     const { password } = req.body;
     if (password !== process.env.ADMIN_PASSWORD) return res.status(401).json({ error: "Unauthorized" });
@@ -72,10 +81,10 @@ app.post('/api/stats', async (req, res) => {
         if (result.data && result.data.viewer.zones.length > 0) {
             res.json(result.data.viewer.zones[0].httpRequests1dGroups[0].sum);
         } else {
-            res.status(500).json({ error: "Cloudflare API returned no data" });
+            res.status(500).json({ error: "No data from Cloudflare" });
         }
     } catch (err) {
-        res.status(500).json({ error: "Server Error" });
+        res.status(500).json({ error: "Internal Server Error" });
     }
 });
 
