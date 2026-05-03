@@ -14,6 +14,8 @@ const db = mysql.createPool({
     port: 3306
 });
 
+// --- LINK MANAGEMENT ROUTES ---
+
 app.get('/links', (req, res) => {
     db.query('SELECT * FROM bbb_pages', (err, results) => {
         if (err) return res.status(500).send(err);
@@ -39,4 +41,55 @@ app.delete('/links/:id', (req, res) => {
     });
 });
 
-app.listen(process.env.PORT || 3000);
+// --- NEW: CLOUDFLARE STATS ROUTE ---
+
+app.post('/api/stats', async (req, res) => {
+    const { password } = req.body;
+
+    // Uses your existing ADMIN_PASSWORD
+    if (password !== process.env.ADMIN_PASSWORD) {
+        return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    const query = {
+        query: `{
+            viewer {
+                zones(filter: { zoneTag: "${process.env.CF_ZONE_ID}" }) {
+                    httpRequests1dGroups(limit: 1, orderBy: [date_DESC]) {
+                        sum {
+                            requests
+                            pageViews
+                        }
+                    }
+                }
+            }
+        }`
+    };
+
+    try {
+        const response = await fetch('https://api.cloudflare.com/client/v4/graphql', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${process.env.CF_API_TOKEN}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(query)
+        });
+
+        const result = await response.json();
+
+        if (result.errors) {
+            return res.status(500).json({ error: "Cloudflare Error", details: result.errors });
+        }
+
+        const stats = result.data.viewer.zones[0].httpRequests1dGroups[0].sum;
+        res.json(stats);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: "Internal Server Error" });
+    }
+});
+
+app.listen(process.env.PORT || 3000, () => {
+    console.log(`Server running on port ${process.env.PORT || 3000}`);
+});
